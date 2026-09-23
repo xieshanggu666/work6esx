@@ -107,10 +107,24 @@ FG.Map = class {
       wear: null,
       wearLimit: null,
       broken: false,
+      // 电力网络（研究「电力网络」后启用；net=null=未接入任何电网）
+      net: null,
+      powered: false,        // 本 tick 是否获得保供（断电则生产/机械臂暂停，恢复后续作）
+      // 燃煤发电机燃料槽（煤炭；机械臂/传送带可直接送入与取走）
+      fuel: null,
+      fuelCap: 0,
+      genOutput: 0,          // 本 tick 实际发电功率（kW，UI/统计用）
+      // 蓄电池储能（kJ，随存档保存）
+      accCharge: 0,
     };
     if (def.storage) {
       for (let i = 0; i < FG.Config.CHEST_SLOTS; i++) b.chest.push({ type: null, count: 0, cap: FG.Config.CHEST_SLOT_CAP });
     }
+    if (def.powerGen) {
+      b.fuel = { type: null, count: 0, cap: 50 };
+      b.fuelCap = b.fuel.cap;
+    }
+    if (def.powerStorage) b.accCharge = 0;
     if (def.recipeBuilding) {
       const recipes = FG.Recipes.forBuilding(type);
       if (recipes.length) { b.recipe = recipes[0].id; FG.Map.syncRecipeSlots(b); }

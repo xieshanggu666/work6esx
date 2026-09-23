@@ -10,7 +10,7 @@ const TRAIN_STATUS = {
 };
 const BUILDING_STATUS = {
   working: '生产中/流动', starving: '缺料', blocked: '堵塞',
-  idle: '闲置', empty: '枯竭', broken: '故障停机',
+  idle: '闲置', empty: '枯竭', broken: '故障停机', unpowered: '缺电暂停',
 };
 
 export function buildTooltip(game, tile) {
@@ -60,6 +60,25 @@ export function buildTooltip(game, tile) {
       const r = FG.Recipes.byId(b.recipe);
       const p = Math.min(1, b.progress / r.time);
       html += `<div class="tt-row">${r.name} <b>${(p * 100).toFixed(0)}%</b></div>`;
+    }
+    if (game.power && game.power.enabled) {
+      const kw = FG.Config.POWER_USE[b.type];
+      if (b.def.powerGen) {
+        html += `<div class="tt-row">发电 <b style="color:#e8c84f">${Math.round(b.genOutput || 0)}</b>/${FG.Config.GEN_POWER_KW} kW`
+          + ` · 煤 <b>${b.fuel ? b.fuel.count : 0}</b>${b.net ? '' : ' · <b style="color:#e8a33d">未接线</b>'}</div>`;
+      } else if (b.def.powerStorage) {
+        const pct = Math.round((b.accCharge || 0) / FG.Config.ACC_CAPACITY_KJ * 100);
+        html += `<div class="tt-row">蓄电池 <b>${Math.round(b.accCharge || 0)}/${FG.Config.ACC_CAPACITY_KJ} kJ</b>（${pct}%）`
+          + (b.net ? '' : ' · <b style="color:#e8a33d">未接线</b>') + '</div>';
+      } else if (b.def.powerPole) {
+        if (b.net) {
+          html += `<div class="tt-row">电网 <b>${b.net.id}</b> · 用电 ${Math.round(b.net.supplied)}/${Math.round(b.net.demand)} kW</div>`;
+        } else html += `<div class="tt-row">孤立线路（${FG.Config.POLE_REACH} 格内无其他线路/设备）</div>`;
+      } else if (kw !== undefined) {
+        html += `<div class="tt-row">用电 <b>${kw} kW</b> · `
+          + (b.powered ? '<b style="color:#58c26f">供电正常</b>'
+            : `<b style="color:#e8a33d">${b.net ? '缺电暂停' : '未接电网'}</b>`) + '</div>';
+      }
     }
     if (b.def.beltTier !== undefined) {
       let merge = 0;

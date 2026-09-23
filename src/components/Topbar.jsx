@@ -21,6 +21,7 @@ export default function Topbar({ game, onOpenTech }) {
       <div className="tb-left">
         <span className="logo">⚙ 自动工厂</span>
         <span className="tb-item">⏱ {FG.Utils.fmtTime(game.playTime || 0)}</span>
+        {game.power && game.power.enabled && <PowerBadge game={game} />}
       </div>
 
       <div className="tb-center">
@@ -71,5 +72,24 @@ export default function Topbar({ game, onOpenTech }) {
         <button className="btn-plain" title="菜单" onClick={() => modal.menu()}>☰</button>
       </div>
     </header>
+  );
+}
+
+/** 顶栏电力徽标：用电/发电功率与蓄电池电量；缺电时红色闪烁 */
+function PowerBadge({ game }) {
+  const s = game.power.summary();
+  if (!s) return null;
+  const bad = s.deficient > 0;
+  const title = `用电 ${Math.round(s.supplied)}/${Math.round(s.demand)} kW · 发电 ${Math.round(s.genKw)} kW`
+    + ` · 蓄电池 ${Math.round(s.accKj)}/${s.accCap} kJ` + (bad ? '（供电不足，已轮停低优先级设备）' : '');
+  return (
+    <span
+      className="tb-item"
+      title={title}
+      style={{ color: bad ? '#e05c5c' : 'var(--text-dim)', cursor: 'default' }}
+    >
+      ⚡ {Math.round(s.supplied)}/{Math.round(s.demand)}kW
+      {bad ? ' ⚠' : ''}
+    </span>
   );
 }

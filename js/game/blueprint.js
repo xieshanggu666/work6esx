@@ -807,6 +807,7 @@ FG.Construction = class Construction {
     // 预测性维护：施工落成的新设备从全新状态开始积累磨损
     if (g.maintenance && g.maintenance.enabled) g.maintenance.initWear(b);
     if (b.type === 'rail' || b.def.railStation) g.railway.markDirty();
+    if (g.power && FG.Power.isConnectable(b)) g.power.markDirty();   // 电网拓扑：施工落成重算
     if (e.recipe && b.def.recipeBuilding && g.research.isRecipeUnlocked(e.recipe)) {
       b.recipe = e.recipe;
       FG.Map.syncRecipeSlots(b);
@@ -853,6 +854,7 @@ FG.Construction = class Construction {
     g.sim.register(nb);                  // 新建筑接入生产调度
     if (nb.def.recipeBuilding) FG.Map.syncRecipeSlots(nb);
     if (g.selection === old) g.selection = nb;   // 选中态跟随新建筑
+    if (g.power && (FG.Power.isConnectable(old) || FG.Power.isConnectable(nb))) g.power.markDirty();
     g.absorbPile(nb);                    // 回收该格地面物料（如取消返还落在旧建筑脚下的建材）
     // 维修工单衔接：故障设备升级后工单迁移到新建筑（备件需求按新型号重算，多退少补）
     if (g.maintenance) g.maintenance.onUpgraded(old, nb);

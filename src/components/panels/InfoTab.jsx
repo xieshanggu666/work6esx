@@ -16,6 +16,7 @@ export default function InfoTab({ game, goTab }) {
 function Overview({ game, goTab }) {
   const ry = game.railway;
   const mo = game.maintenance;
+  const ps = game.power && game.power.enabled ? game.power.summary() : null;
   const rows = [
     ['建筑数', game.totalBuildings()],
     ['列车', ry ? ry.trains.length : 0],
@@ -28,11 +29,27 @@ function Overview({ game, goTab }) {
   return (
     <Section title="工厂概况">
       <InfoGrid rows={rows} />
+      {ps && (
+        <div className="panel-sec" style={{ paddingBottom: 0 }}>
+          <h4>⚡ 电力（{ps.nets} 个电网）</h4>
+          <InfoGrid rows={[
+            ['用电负荷', `${Math.round(ps.supplied)} / ${Math.round(ps.demand)} kW`,
+             ps.deficient ? 'status-broken' : ''],
+            ['发电', `${Math.round(ps.genKw)} kW`],
+            ['蓄电池', `${Math.round(ps.accKj)} / ${ps.accCap} kJ`],
+          ]} />
+          {ps.deficient > 0 && (
+            <div style={{ fontSize: 11, color: '#e8a33d', marginTop: 4 }}>
+              ⚠ {ps.deficient} 个电网供电不足，低保供优先级设备已暂停；选中线路/发电机可查看本网明细。
+            </div>
+          )}
+        </div>
+      )}
       <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 8, lineHeight: 1.6 }}>
         点击地图上的建筑查看详情。<br />
         拖动右键平移视野，滚轮缩放。<br />
         矿机→熔炉→组装机→科学包，最后发射卫星！<br />
-        研究「铁路货运」后铺轨道、建车站，用列车跨区运料。
+        研究「电力网络」后建发电机与线路给设备供电；「铁路货运」后铺轨道跨区运料。
       </div>
       <div className="action-row">
         <button onClick={() => goTab('build')}>🏗 施工</button>

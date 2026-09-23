@@ -145,6 +145,26 @@ FG.Buildings = (() => {
       cost: { ironPlate: 10, gear: 6, circuit: 4 },   // 蓝图施工建材
       unlockedBy: 'supplyContract', storage: true, railStation: true, delivery: true,
     },
+
+    // ================= 电力 =================
+    coalGenerator: {
+      id: 'coalGenerator', name: '燃煤发电机', cat: 'power',
+      desc: '烧煤发电：机械臂/传送带把煤炭送入燃料槽即可向所连电网供电。发电量随电网实际需求调节，不浪费燃料。',
+      cost: { ironPlate: 6, gear: 4 },   // 蓝图施工建材
+      unlockedBy: 'electricity', powerGen: true,
+    },
+    powerPole: {
+      id: 'powerPole', name: '输电线路', cat: 'power',
+      desc: '在 2 格范围内自动相互接线，并为同范围内的发电机、用电设备与蓄电池联网。不连续的线路构成不同电网。',
+      cost: { ironPlate: 1 },   // 蓝图施工建材
+      unlockedBy: 'electricity', powerPole: true,
+    },
+    accumulator: {
+      id: 'accumulator', name: '蓄电池', cat: 'power',
+      desc: '电力富余时充电、缺电时放电，按电网统一分配：缺电时先保证高优先级生产与机械臂，科研（实验室）最末。电量随存档保存。',
+      cost: { ironPlate: 4, gear: 2 },   // 蓝图施工建材
+      unlockedBy: 'electricity', powerStorage: true,
+    },
   };
 
   const byId = (id) => DEFS[id];
@@ -178,6 +198,7 @@ FG.Buildings = (() => {
     { id: 'extraction', name: '采集' },
     { id: 'production', name: '生产' },
     { id: 'logistics',  name: '物流' },
+    { id: 'power',      name: '电力' },
     { id: 'science',    name: '科研' },
   ];
 

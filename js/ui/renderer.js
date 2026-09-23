@@ -51,6 +51,7 @@ FG.Renderer = (() => {
     drawTerrain(x0, y0, x1, y1);
     drawOre(x0, y0, x1, y1);
     drawGrid(x0, y0, x1, y1);
+    drawPowerWires(x0, y0, x1, y1);
     drawBuildings(x0, y0, x1, y1);
     drawTrains();
     drawConstruction();
@@ -126,6 +127,55 @@ FG.Renderer = (() => {
     for (let x = x0; x <= x1 + 1; x++) { ctx.moveTo(x * t + 0.5, y0 * t); ctx.lineTo(x * t + 0.5, (y1 + 1) * t); }
     for (let y = y0; y <= y1 + 1; y++) { ctx.moveTo(x0 * t, y * t + 0.5); ctx.lineTo((x1 + 1) * t, y * t + 0.5); }
     ctx.stroke();
+  }
+
+  // ==================== 电力网络 ====================
+  /** 电网连线：线路之间（≤2 格）以及线路与覆盖范围内的发电机/用电设备/蓄电池 */
+  function drawPowerWires(x0, y0, x1, y1) {
+    const pw = game.power;
+    if (!pw || !pw.enabled) return;
+    const t = T();
+    const R = C().POLE_REACH;
+    ctx.lineWidth = 1.2;
+    for (let y = Math.max(0, y0 - R); y <= Math.min(game.map.h - 1, y1 + R); y++) {
+      for (let x = Math.max(0, x0 - R); x <= Math.min(game.map.w - 1, x1 + R); x++) {
+        const p = game.map.buildingAt(x, y);
+        if (!p || !p.def.powerPole) continue;
+        const net = p.net;
+        const col = net ? 'rgba(240,210,90,0.5)' : 'rgba(150,150,160,0.35)';
+        ctx.strokeStyle = col;
+        // 到其他线路（只向右/下画，避免重复）
+        for (let dy = 0; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
+            if (dy === 0 && dx <= 0) continue;
+            if (Math.abs(dx) + dy > R) continue;
+            const nb = game.map.buildingAt(x + dx, y + dy);
+            if (nb && nb.def.powerPole) {
+              ctx.beginPath();
+              ctx.moveTo((x + 0.5) * t, (y + 0.5) * t);
+              ctx.lineTo((x + dx + 0.5) * t, (y + dy + 0.5) * t);
+              ctx.stroke();
+            }
+          }
+        }
+        // 到覆盖范围内的用电/发电/储能建筑
+        for (let dy = -R; dy <= R; dy++) {
+          for (let dx = -R; dx <= R; dx++) {
+            if (dx === 0 && dy === 0) continue;
+            if (Math.abs(dx) + Math.abs(dy) > R) continue;
+            const nb = game.map.buildingAt(x + dx, y + dy);
+            if (nb && !nb.def.powerPole && FG.Power.isConnectable(nb)) {
+              ctx.strokeStyle = nb.net ? 'rgba(240,210,90,0.32)' : 'rgba(150,150,160,0.25)';
+              ctx.beginPath();
+              ctx.moveTo((x + 0.5) * t, (y + 0.5) * t);
+              ctx.lineTo((x + dx + 0.5) * t, (y + dy + 0.5) * t);
+              ctx.stroke();
+              ctx.strokeStyle = col;
+            }
+          }
+        }
+      }
+    }
   }
 
   function drawBuildings(x0, y0, x1, y1) {
@@ -468,6 +518,8 @@ FG.Renderer = (() => {
   }
 
   function drawBuilding(b, px, py, t) {
+    const inWorldSafe = (bb) => !!(game && game.map && game.state === 'playing'
+      && game.map.inBounds(bb.x, bb.y) && game.map.buildingAt(bb.x, bb.y) === bb);
     // 底座
     ctx.fillStyle = '#2b3140';
     ctx.fillRect(px + 1, py + 1, t - 2, t - 2);
@@ -654,6 +706,73 @@ FG.Renderer = (() => {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
       ctx.fillText('务', cx, cy + 10);
       ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    } else if (type === 'coalGenerator') {
+      // 燃煤发电机：锅炉机身 + 烟囱 + 火焰指示
+      ctx.fillStyle = '#4a4038';
+      ctx.fillRect(px + 4, py + 9, t - 8, t - 13);
+      ctx.fillStyle = '#5d5148';
+      ctx.fillRect(px + 5, py + 10, t - 10, 6);
+      ctx.fillStyle = '#38302a';
+      ctx.fillRect(px + t - 11, py + 3, 6, 9);
+      ctx.fillStyle = '#241f1a';
+      ctx.fillRect(px + t - 10, py + 2, 4, 3);
+      // 膛门口火焰（有燃料且正在发电时亮）
+      const burning = b.genOutput > 0.01;
+      ctx.fillStyle = burning ? '#e8953d' : '#5a4636';
+      ctx.fillRect(px + 7, py + 18, 8, 5);
+      if (burning) {
+        ctx.fillStyle = '#ffd97a';
+        ctx.fillRect(px + 9, py + 19, 4, 2);
+      }
+      // 燃料指示小条
+      if (inWorldSafe(b)) {
+        const ratio = b.fuel ? b.fuel.count / b.fuel.cap : 0;
+        if (ratio > 0.01) {
+          ctx.fillStyle = 'rgba(0,0,0,0.5)';
+          ctx.fillRect(px + 4, py + t - 5, t - 8, 2.6);
+          ctx.fillStyle = '#3a3d42';
+          ctx.fillRect(px + 4, py + t - 5, (t - 8) * ratio, 2.6);
+        }
+      }
+    } else if (type === 'powerPole') {
+      // 输电线路：电杆 + 横担 + 绝缘子
+      ctx.strokeStyle = '#7a6a4a';
+      ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(cx, py + 6); ctx.lineTo(cx, py + t - 4); ctx.stroke();
+      ctx.strokeStyle = '#9a8a64';
+      ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.moveTo(px + 6, py + 9); ctx.lineTo(px + t - 6, py + 9); ctx.stroke();
+      ctx.fillStyle = '#e8d27a';
+      ctx.beginPath(); ctx.arc(px + 6, py + 9, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + t - 6, py + 9, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#5d4e34';
+      ctx.fillRect(cx - 3, py + t - 6, 6, 3);
+    } else if (type === 'accumulator') {
+      // 蓄电池：电池外壳 + 电量填充 + 端子
+      ctx.fillStyle = '#33403a';
+      ctx.fillRect(px + 5, py + 8, t - 10, t - 13);
+      ctx.strokeStyle = '#4a6055';
+      ctx.lineWidth = 1.2;
+      ctx.strokeRect(px + 5.5, py + 8.5, t - 11, t - 14);
+      ctx.fillStyle = '#6a8a78';
+      ctx.fillRect(cx - 3, py + 5, 6, 3);
+      if (inWorldSafe(b)) {
+        const ratio = Math.max(0, Math.min(1, (b.accCharge || 0) / C().ACC_CAPACITY_KJ));
+        if (ratio > 0.01) {
+          ctx.fillStyle = ratio > 0.3 ? '#5fd98a' : '#e8a33d';
+          ctx.globalAlpha = 0.85;
+          ctx.fillRect(px + 7, py + 10 + (t - 17) * (1 - ratio), t - 14, (t - 17) * ratio);
+          ctx.globalAlpha = 1;
+        }
+        // 充/放电箭头
+        if (b.net) {
+          ctx.fillStyle = '#9fe8b8';
+          ctx.font = '8px Consolas';
+          ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+          ctx.fillText('⚡', cx, cy - 1);
+          ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+        }
+      }
     }
 
     // 生产线供料优先级角标（非普通时显示）
@@ -686,10 +805,22 @@ FG.Renderer = (() => {
       ctx.beginPath(); ctx.arc(px + 5, py + 5, 3, 0, Math.PI * 2); ctx.fill();
     }
 
+    // 断电覆盖层（缺电轮停：黄色闪电警示，优先级高于状态高亮、低于故障）
+    if (!b.broken && game.power && game.power.enabled
+        && FG.Power.isLoad(b) && b.powered === false) {
+      ctx.fillStyle = 'rgba(232,163,61,0.22)';
+      ctx.fillRect(px + 1, py + 1, t - 2, t - 2);
+      ctx.font = '10px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⚡', cx, cy);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+    }
+
     // 状态覆盖层
     if (game.showStatus && b.status) {
       const col = b.status === 'starving' ? C().COLORS.overlayRed
         : b.status === 'blocked' ? C().COLORS.overlayOrange
+        : b.status === 'unpowered' ? 'rgba(232,163,61,0.32)'
         : b.status === 'working' ? C().COLORS.overlayGreen : null;
       if (col) {
         ctx.fillStyle = col;
@@ -892,7 +1023,7 @@ FG.Renderer = (() => {
     ctx.lineWidth = 2;
     ctx.strokeRect(px + 1, py + 1, t - 2, t - 2);
     ctx.globalAlpha = 0.5;
-    const tmp = { def: FG.Buildings.byId(g.type), type: g.type, x, y, dir: g.dir, items: [], held: null, level: 0, fluidType: null, status: 'idle', slots: { inputs: {}, outputs: {} }, chest: [], rr: 0 };
+    const tmp = { def: FG.Buildings.byId(g.type), type: g.type, x, y, dir: g.dir, items: [], held: null, level: 0, fluidType: null, status: 'idle', slots: { inputs: {}, outputs: {} }, chest: [], rr: 0, fuel: null, genOutput: 0, accCharge: 0, net: null };
     if (tmp.def.beltTier !== undefined) drawBelt(tmp, px, py, t);
     else if (tmp.type === 'rail' || tmp.def.railStation) drawRailTile(tmp, px, py, t);
     else drawBuilding(tmp, px, py, t);
@@ -1004,7 +1135,7 @@ FG.Renderer = (() => {
     const cv = document.createElement('canvas');
     cv.width = size; cv.height = size;
     const c2 = cv.getContext('2d');
-    const tmp = { def: FG.Buildings.byId(type), type, x: -1, y: -1, dir: dir || 0, items: [], held: null, level: 0, fluidType: null, status: 'idle', slots: { inputs: {}, outputs: {} }, chest: [], rr: 0 };
+    const tmp = { def: FG.Buildings.byId(type), type, x: -1, y: -1, dir: dir || 0, items: [], held: null, level: 0, fluidType: null, status: 'idle', slots: { inputs: {}, outputs: {} }, chest: [], rr: 0, fuel: null, genOutput: 0, accCharge: 0, net: null };
     // 等比缩放到图标尺寸
     const scale = size / 32;
     c2.save();

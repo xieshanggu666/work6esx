@@ -59,6 +59,21 @@ FG.Config = {
   CONTRACT_MAX_QTY: 120,          // 合同需求量上限
 
 
+  // 电力系统（研究「电力网络」后启用：燃煤发电机 + 输电线路 + 蓄电池）
+  POLE_REACH: 2,            // 输电线路相邻供电距离（曼哈顿距离 ≤2 自动接线）
+  GEN_POWER_KW: 400,        // 燃煤发电机额定功率（kW）
+  GEN_FUEL_PER_TICK: 1 / 80,// 满载每 tick 耗煤（1 块煤满载发电 4 仿真秒）
+  ACC_CAPACITY_KJ: 2000,    // 蓄电池容量（kJ）
+  ACC_RATE_KW: 300,         // 蓄电池最大充/放电功率（kW）
+  // 各用电设备功率（kW）；传送带/管道/箱子不耗电
+  POWER_USE: {
+    miner: 90, pump: 60, pumpjack: 90,
+    furnace: 60, steelFurnace: 90,
+    assembler: 90, assembler2: 150, chemPlant: 120, refinery: 150,
+    lab: 60,
+    inserter: 6, fastInserter: 9, longInserter: 8,
+  },
+
   // 蓝图施工
   BP_MAX_AREA: 400,              // 框选蓝图的最大格数
   CONSTRUCT_BUILD_INTERVAL: 4,   // 施工计划相邻两栋建筑落成的 tick 间隔

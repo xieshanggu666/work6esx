@@ -7,6 +7,7 @@ import { Section, InfoGrid, ProgressBar, SlotRow, STATUS_NAMES, PRIO_OPTS } from
 import MaintenanceBlock from './MaintenanceBlock.jsx';
 import DeliveryBlock from './DeliveryBlock.jsx';
 import FleetBlock from './FleetBlock.jsx';
+import PowerBlock from './PowerBlock.jsx';
 
 export default function BuildingInfo({ game, b }) {
   // 该面板上的操作会就地改变 b；selection:change / recipe:change 已在 SidePanel 订阅，
@@ -16,6 +17,8 @@ export default function BuildingInfo({ game, b }) {
   const isBelt = b.def.beltTier !== undefined;
   const isInserter = b.def.inserterTier !== undefined;
   const isConsumer = b.def.recipeBuilding || b.type === 'lab';
+  const isPowerUser = FG.Config.POWER_USE[b.type] !== undefined;
+  const powerOn = !!(game.power && game.power.enabled);
 
   return (
     <>
@@ -34,6 +37,7 @@ export default function BuildingInfo({ game, b }) {
           ...(b.type === 'miner' ? [['矿种', b.oreType ? FG.Items.byId(b.oreType).name : '无']] : []),
           ...(b.type === 'miner' && b.oreType ? [['剩余', FG.Utils.fmtNum(game.map.amountAt(b.x, b.y))]] : []),
           ...(isConsumer ? [['供料优先级', { high: '高', normal: '中', low: '低' }[b.priority] || '中']] : []),
+          ...(powerOn && isPowerUser && b.type !== 'lab' ? [['保供优先级', { high: '高', normal: '中', low: '低' }[b.priority] || '中']] : []),
           ...(b.def.recipeBuilding ? [['产量', FG.Utils.fmtNum(b.totalCrafted)]] : []),
         ]} />
         <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
@@ -43,6 +47,8 @@ export default function BuildingInfo({ game, b }) {
 
       {isInserter && <InserterRules game={game} b={b} />}
       {isConsumer && <PriorityPicker b={b} />}
+      <PowerBlock game={game} b={b} />
+      {powerOn && isPowerUser && b.type !== 'lab' && <PowerPriorityPicker b={b} />}
       {game.maintenance && game.maintenance.enabled && game.maintenance.wearsOut(b) && (
         <MaintenanceBlock game={game} b={b} embedded />
       )}
@@ -122,6 +128,29 @@ function PriorityPicker({ b }) {
       </div>
       <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
         料源紧张时高优先级产线先得料，同优先级轮转均分；在途货物自动预留，在带面上以青色环标记。
+      </div>
+    </Section>
+  );
+}
+
+/** 电力保供优先级：与供料优先级共用 b.priority（缺电轮停分层；实验室固定最末档，不显示） */
+function PowerPriorityPicker({ b }) {
+  const cur = b.priority || 'normal';
+  return (
+    <Section title="⚡ 电力保供优先级">
+      <div className="prio-row">
+        {PRIO_OPTS.map(([id, name, tip]) => (
+          <button
+            key={id}
+            className={'prio-btn prio-' + id + (cur === id ? ' active' : '')}
+            title={tip}
+            onClick={() => { b.priority = id; FG.Events.emit('selection:change', b); }}
+          >{name}</button>
+        ))}
+      </div>
+      <div style={{ fontSize: 11, color: 'var(--text-dim)', marginTop: 4, lineHeight: 1.5 }}>
+        电网缺电时按 高 → 中 → 低 顺序切负荷，高层未保住前低层一律暂停；实验室固定为最末档。
+        优先级同时作用于材料供料调度。
       </div>
     </Section>
   );

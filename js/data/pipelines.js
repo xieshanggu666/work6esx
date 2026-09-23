@@ -207,6 +207,33 @@ FG.Pipelines = (() => {
         E('pipe', 3, 0, 0),
       ],
     },
+
+    // ===================== 电力 =====================
+    {
+      id: 'coalPower',
+      name: '燃煤供电站',
+      icon: '⚡',
+      desc: '煤炭箱经机械臂自动给 2 台燃煤发电机上煤，4 根输电线路连成供电主干并接 1 组蓄电池削峰。需要科技「电力网络」。',
+      chain: '煤炭 → 燃煤发电机 ×2 → 输电线路 + 蓄电池',
+      // 布局（9×3）：
+      //   煤箱→臂→发电机  线路沿南侧东行，蓄电池挂在线路旁
+      w: 9, h: 3,
+      entries: [
+        E('chest', 0, 0, 0),
+        E('inserter', 1, 0, 1, { filter: 'coal' }),
+        E('coalGenerator', 2, 0, 0),
+        E('chest', 0, 1, 0),
+        E('inserter', 1, 1, 1, { filter: 'coal' }),
+        E('coalGenerator', 2, 1, 0),
+        // 输电主干（两排发电机都在第 0 行线路的 2 格覆盖内）
+        E('powerPole', 3, 1, 0),
+        E('powerPole', 5, 1, 0),
+        E('powerPole', 7, 1, 0),
+        E('powerPole', 9, 1, 0),
+        // 蓄电池（距 (5,1) 线路 1 格，自动接入）
+        E('accumulator', 5, 2, 0),
+      ],
+    },
   ];
 
   const list = () => PRESETS;

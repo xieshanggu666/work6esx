@@ -57,6 +57,9 @@ FG.Sim = class Sim {
   // ================= 主循环 =================
   tick() {
     this.entryClaims.clear();
+    // 电力结算：重建电网（脏时）→ 发电机按需烧煤 → 蓄电池充放 → 按保供优先级给本 tick
+    // 各用电设备置 powered 标记；断电设备本 tick 冻结（传送带不耗电，照常运转）
+    if (this.game.power) this.game.power.tick();
     // 先重建按需调度计划（缺口/在途预留/优先级拨付），供本 tick 机械臂取放查询
     this.scheduler.rebuild(this.game.tickCount);
     this.moveBelts();
@@ -116,6 +119,11 @@ FG.Sim = class Sim {
           if (next.def.storage) {
             if (this.chestAdd(next, head.type, 1)) { delete head.tag; dst.items.pop(); }
             else head.pos = 0.99;
+          } else if (next.def.powerGen && this.fuelCanAdd(next, head.type, 1)) {
+            // 带端直送燃煤发电机燃料槽（煤炭）
+            this.fuelAdd(next, head.type, 1);
+            delete head.tag;
+            dst.items.pop();
           } else {
             head.pos = 0.99; // 生产/科研建筑需经机械臂放入
           }
@@ -163,6 +171,7 @@ FG.Sim = class Sim {
       return FG.Map.beltEntrySide(next, b.x, b.y) >= 0 && this.hasEntryRoom(next);
     }
     if (next.def.storage) return this.chestCanAdd(next, head.type, 1);
+    if (next.def.powerGen) return this.fuelCanAdd(next, head.type, 1);
     return false;
   }
 
@@ -181,6 +190,8 @@ FG.Sim = class Sim {
     // 先于低优先产线争得共享料源（与在途预留联动）。
     const dropping = [], picking = [];
     for (const b of this.inserters) {
+      // 缺电轮停：节拍冻结、手持物保留，供电恢复后从原节拍续作
+      if (this.game.power && this.game.power.enabled && !b.powered) { b.status = 'unpowered'; continue; }
       b.timer--;
       if (b.held !== null) { if (b.timer <= 0) dropping.push(b); }
       else if (b.timer <= 0) picking.push(b);
@@ -259,6 +270,17 @@ FG.Sim = class Sim {
       }
       return null;
     }
+    // 燃煤发电机燃料槽：机械臂可取走剩余煤炭（拆网/换料时不堵煤）
+    if (s && s.def.powerGen) {
+      if (s.fuel && s.fuel.count > 0 && match(s.fuel.type)
+          && this.scheduler.canTakeType(b, s.fuel.type, null)) {
+        const type = s.fuel.type;
+        s.fuel.count--;
+        if (s.fuel.count <= 0) s.fuel.type = null;
+        return { type, tag: this.scheduler.tagOnPickup(b, type, null) };
+      }
+      return null;
+    }
     // 地面物料堆（建筑被拆除后的保留物料）
     const pile = m.pileAt(sx, sy);
     if (pile) {
@@ -322,6 +344,11 @@ FG.Sim = class Sim {
       if (!this.scheduler.canDrop(b, t, type, tag)) return false;
       if (this.chestAdd(t, type, 1)) return true; // 入终端仓库：预留语义随货释放
     }
+    if (t && t.def.powerGen) {
+      // 燃煤发电机：机械臂把煤炭放入燃料槽（预留标签随入炉释放）
+      if (!this.scheduler.canDrop(b, t, type, tag)) return false;
+      return this.fuelAdd(t, type, 1) === 1;
+    }
     // 放到地面堆（无建筑时只有该格已有堆才继续堆放，避免误洒）
     if (!t && m.pileAt(tx, ty)) {
       if (!this.scheduler.canDrop(b, null, type, tag)) return false;
@@ -354,10 +381,27 @@ FG.Sim = class Sim {
     return false;
   }
 
+  // ================= 燃煤发电机燃料槽 =================
+  /** 当前仅煤炭可作发电机燃料 */
+  fuelCanAdd(gen, type) { return !!gen.fuel && type === 'coal'
+    && gen.fuel.count < gen.fuel.cap && (!gen.fuel.type || gen.fuel.type === type); }
+
+  fuelAdd(gen, type, n) {
+    if (!this.fuelCanAdd(gen, type)) return 0;
+    const put = Math.min(n, gen.fuel.cap - gen.fuel.count);
+    gen.fuel.type = type;
+    gen.fuel.count += put;
+    return put;
+  }
+
   // ================= 流体生产（水泵/抽油机） =================
   updateFluidProducers() {
     for (const b of this.fluidProducers) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机检修：不抽液、不推流
+      if (this.game.power && this.game.power.enabled && !b.powered) {
+        b.status = 'unpowered';   // 缺电轮停：不抽液、不推流、不积累磨损，恢复后续作
+        continue;
+      }
       const item = b.type === 'pump' ? 'water' : 'crudeOil';
       const cap = FG.Config.FLUID_TANK_CAP;
       const tank = b.fluidTanks[item] || 0;
@@ -433,6 +477,10 @@ FG.Sim = class Sim {
   updateCrafters() {
     for (const b of this.crafters) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机：等待维修工单检修
+      if (this.game.power && this.game.power.enabled && !b.powered) {
+        b.status = 'unpowered';   // 缺电轮停：进度/物料冻结，供电恢复后续作
+        continue;
+      }
       const recipe = b.recipe ? FG.Recipes.byId(b.recipe) : null;
       if (!recipe) { b.status = 'idle'; b.progress = 0; continue; }
       if (!this.game.research.isRecipeUnlocked(recipe.id)) { b.status = 'idle'; b.progress = 0; continue; }
@@ -537,6 +585,10 @@ FG.Sim = class Sim {
     const m = this.game.map;
     for (const b of this.miners) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机：等待维修工单检修
+      if (this.game.power && this.game.power.enabled && !b.powered) {
+        b.status = 'unpowered';   // 缺电轮停：采矿进度冻结，供电恢复后续作
+        continue;
+      }
       const ore = m.ores[b.y][b.x];
       if (!ore || ore.amount <= 0) { b.status = 'empty'; b.progress = 0; b.oreType = null; continue; }
       b.oreType = ore.type;
@@ -565,6 +617,10 @@ FG.Sim = class Sim {
     const mgr = this.game.research;
     for (const b of this.labs) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机：等待维修工单检修
+      if (this.game.power && this.game.power.enabled && !b.powered) {
+        b.status = 'unpowered';   // 缺电轮停：科研暂停（实验室保供优先级最末），恢复后续作
+        continue;
+      }
       const tech = mgr.current;
       if (!tech) { b.status = 'idle'; b.consumeCounter = 0; continue; }
       b.consumeCounter++;
