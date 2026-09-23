@@ -117,7 +117,7 @@ export default function MapCanvas({ game, onOpenTech }) {
 
       if (game.ghost) {
         const gDef = FG.Buildings.byId(game.ghost.type);
-        if (gDef.beltTier !== undefined || gDef.railTier !== undefined) {
+        if (gDef.beltTier !== undefined || gDef.railTier !== undefined || gDef.powerPole) {
           dragPlace = { lastX: tile.x, lastY: tile.y };
         }
         game.placeGhost(tile.x, tile.y);

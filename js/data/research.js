@@ -11,6 +11,12 @@ FG.Research = (() => {
       cost: { science1: 30 }, prereq: [],
       unlocksB: [], unlocksR: ['craft:miningDrill'],
     },
+    electricPower: {
+      id: 'electricPower', name: '电力工程', col: 0, row: 1,
+      desc: '解锁燃煤发电机、电线杆与蓄电池：用电线杆把发电机与工厂连成电网，按保供优先级分配电力；蓄电池在用电高峰放电补峰。电网缺电时低优先级的生产、机械臂与科研依次暂停，恢复供电后续作。',
+      cost: { science1: 20 }, prereq: ['automationScience'],
+      unlocksB: ['coalPlant', 'powerPole', 'accumulator'], unlocksR: [],
+    },
     steelSmelting: {
       id: 'steelSmelting', name: '钢冶炼', col: 1, row: 0,
       desc: '解锁钢板配方、铁梁与钢炉。',

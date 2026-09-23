@@ -62,6 +62,8 @@ button.danger:hover { background: #4d2c2c; }
 }
 .logo { font-weight: 700; color: var(--accent); margin-right: 16px; letter-spacing: 1px; }
 .tb-item { color: var(--text-dim); font-family: var(--mono); }
+.power-chip { color: #7fd8f0; }
+.power-chip.warn { color: #e8915f; font-weight: 700; }
 .tb-left, .tb-center, .tb-right { display: flex; align-items: center; gap: 8px; }
 .speed-btns { display: flex; gap: 2px; }
 .speed-btns button { padding: 3px 8px; }
@@ -209,6 +211,7 @@ button.danger:hover { background: #4d2c2c; }
 .info-grid .v.status-waiting { color: #3fc7c0; }
 .info-grid .v.status-idle { color: var(--text-dim); }
 .info-grid .v.status-broken { color: var(--red); font-weight: 700; }
+.info-grid .v.status-unpowered { color: #8f98e8; font-weight: 600; }
 
 .progress-bar { height: 10px; background: #10131a; border-radius: 5px; overflow: hidden; margin: 6px 0; }
 .progress-bar .fill { height: 100%; background: linear-gradient(90deg, var(--green), #8fdc9c); transition: width .15s; }

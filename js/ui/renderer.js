@@ -51,6 +51,8 @@ FG.Renderer = (() => {
     drawTerrain(x0, y0, x1, y1);
     drawOre(x0, y0, x1, y1);
     drawGrid(x0, y0, x1, y1);
+    drawPowerCoverage(x0, y0, x1, y1);
+    drawPowerWires(x0, y0, x1, y1);
     drawBuildings(x0, y0, x1, y1);
     drawTrains();
     drawConstruction();
@@ -125,6 +127,75 @@ FG.Renderer = (() => {
     ctx.beginPath();
     for (let x = x0; x <= x1 + 1; x++) { ctx.moveTo(x * t + 0.5, y0 * t); ctx.lineTo(x * t + 0.5, (y1 + 1) * t); }
     for (let y = y0; y <= y1 + 1; y++) { ctx.moveTo(x0 * t, y * t + 0.5); ctx.lineTo((x1 + 1) * t, y * t + 0.5); }
+    ctx.stroke();
+  }
+
+  // ==================== 电力：供电覆盖与架空线 ====================
+  /** 选中/放置预览电线杆时显示供电范围（2 格）与接线范围（5 格） */
+  function drawPowerCoverage(x0, y0, x1, y1) {
+    if (!game.power || !game.power.enabled) return;
+    const t = T();
+    let center = null, big = false;
+    if (game.ghost && (game.ghost.type === 'powerPole' || game.ghost.type === 'coalPlant'
+        || game.ghost.type === 'accumulator')) {
+      center = { x: lastMouseTile.x, y: lastMouseTile.y };
+      big = game.ghost.type === 'powerPole';
+    } else if (game.selection && !game.selection.isTrain && game.selection.def
+               && game.selection.def.powerPole) {
+      center = { x: game.selection.x, y: game.selection.y };
+      big = true;
+    }
+    if (!center || center.x === null) return;
+    const r = big ? C().POLE_REACH : C().POLE_REACH;
+    ctx.fillStyle = 'rgba(94,200,240,0.10)';
+    ctx.fillRect((center.x - r) * t, (center.y - r) * t, t * (r * 2 + 1), t * (r * 2 + 1));
+    ctx.strokeStyle = 'rgba(94,200,240,0.35)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect((center.x - r) * t + 0.5, (center.y - r) * t + 0.5,
+      t * (r * 2 + 1) - 1, t * (r * 2 + 1) - 1);
+    if (big) {
+      const wr = C().POLE_WIRE_REACH;
+      ctx.strokeStyle = 'rgba(240,210,94,0.20)';
+      ctx.strokeRect((center.x - wr) * t + 0.5, (center.y - wr) * t + 0.5,
+        t * (wr * 2 + 1) - 1, t * (wr * 2 + 1) - 1);
+    }
+  }
+
+  /** 电网架空线：电线杆互连（≤POLE_WIRE_REACH）黄线，杆-发电机/蓄电池（≤POLE_REACH）青线 */
+  function drawPowerWires(x0, y0, x1, y1) {
+    if (!game.power || !game.power.enabled) return;
+    const t = T();
+    const inView = (x, y) => x >= x0 - 6 && x <= x1 + 6 && y >= y0 - 6 && y <= y1 + 6;
+    ctx.lineWidth = 1.2;
+    // 杆-杆 架空线
+    ctx.strokeStyle = 'rgba(232,190,70,0.55)';
+    const poles = game.power.nodes.filter(b => b.def.powerPole && inView(b.x, b.y));
+    ctx.beginPath();
+    for (let i = 0; i < poles.length; i++) {
+      for (let j = i + 1; j < poles.length; j++) {
+        const a = poles[i], c = poles[j];
+        if (Math.max(Math.abs(a.x - c.x), Math.abs(a.y - c.y)) <= C().POLE_WIRE_REACH) {
+          ctx.moveTo((a.x + 0.5) * t, (a.y + 0.5) * t);
+          ctx.lineTo((c.x + 0.5) * t, (c.y + 0.5) * t);
+        }
+      }
+    }
+    ctx.stroke();
+    // 杆-发电机/蓄电池 连接线（青色）
+    ctx.strokeStyle = 'rgba(94,200,240,0.7)';
+    ctx.beginPath();
+    for (const n of game.power.nodes) {
+      if (n.def.powerPole || !inView(n.x, n.y)) continue;
+      let best = null, bestD = Infinity;
+      for (const p of poles) {
+        const d = Math.max(Math.abs(n.x - p.x), Math.abs(n.y - p.y));
+        if (d <= C().POLE_REACH && d < bestD) { best = p; bestD = d; }
+      }
+      if (best) {
+        ctx.moveTo((n.x + 0.5) * t, (n.y + 0.5) * t);
+        ctx.lineTo((best.x + 0.5) * t, (best.y + 0.5) * t);
+      }
+    }
     ctx.stroke();
   }
 
@@ -468,6 +539,9 @@ FG.Renderer = (() => {
   }
 
   function drawBuilding(b, px, py, t) {
+    // 是否为世界中的实体（图标/幽灵离屏预览时为 false：不读动态状态）
+    const inWorld = !!(game && game.map && game.state === 'playing'
+      && game.map.inBounds(b.x, b.y) && game.map.buildingAt(b.x, b.y) === b);
     // 底座
     ctx.fillStyle = '#2b3140';
     ctx.fillRect(px + 1, py + 1, t - 2, t - 2);
@@ -634,6 +708,62 @@ FG.Renderer = (() => {
         const first = items[0];
         drawItem(ctx, first.type, cx, cy + 4, 9, 1);
       }
+    } else if (type === 'powerPole') {
+      // 电线杆：木桩 + 横担 + 绝缘子
+      ctx.fillStyle = '#5a4632';
+      ctx.fillRect(cx - 1.4, py + 5, 2.8, t - 8);
+      ctx.strokeStyle = '#8a6a44';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(px + 7, py + 9); ctx.lineTo(px + t - 7, py + 9);
+      ctx.stroke();
+      ctx.fillStyle = '#c8d0c0';
+      ctx.beginPath(); ctx.arc(px + 7, py + 9, 1.8, 0, Math.PI * 2); ctx.fill();
+      ctx.beginPath(); ctx.arc(px + t - 7, py + 9, 1.8, 0, Math.PI * 2); ctx.fill();
+    } else if (type === 'coalPlant') {
+      // 燃煤发电机：锅炉体 + 烟囱 + 火焰指示
+      ctx.fillStyle = '#4a3f38';
+      ctx.fillRect(px + 4, py + 8, t - 8, t - 12);
+      ctx.fillStyle = '#5d4f45';
+      ctx.fillRect(px + 6, py + 10, 10, 8);
+      ctx.fillStyle = '#332c27';
+      ctx.fillRect(px + t - 11, py + 4, 6, 10);
+      ctx.fillStyle = '#6d6056';
+      ctx.fillRect(px + t - 10, py + 3, 4, 2);
+      // 运行时：燃料火焰 + 燃料条
+      if (inWorld && (b.fuel || 0) > 0) {
+        ctx.fillStyle = '#e8953d';
+        ctx.beginPath();
+        ctx.moveTo(px + 11, py + 18);
+        ctx.quadraticCurveTo(px + 8, py + 14, px + 10, py + 11);
+        ctx.quadraticCurveTo(px + 13, py + 13, px + 12, py + 16);
+        ctx.quadraticCurveTo(px + 13, py + 17, px + 11, py + 18);
+        ctx.fill();
+        ctx.fillStyle = 'rgba(0,0,0,0.55)';
+        ctx.fillRect(px + 6, py + t - 5, t - 12, 2.6);
+        ctx.fillStyle = '#e8b33d';
+        ctx.fillRect(px + 6, py + t - 5,
+          (t - 12) * Math.min(1, (b.fuel || 0) / C().POWER_GEN_FUEL_CAP), 2.6);
+      }
+    } else if (type === 'accumulator') {
+      // 蓄电池：电池箱体 + 电极 + 充能条
+      ctx.fillStyle = '#2f3d4a';
+      ctx.fillRect(px + 5, py + 7, t - 10, t - 12);
+      ctx.fillStyle = '#3f5264';
+      ctx.fillRect(px + 7, py + 9, t - 14, t - 16);
+      ctx.fillStyle = '#8a93a3';
+      ctx.fillRect(cx - 3, py + 5, 6, 3);
+      const ratio = inWorld ? Math.min(1, (b.accCharge || 0) / C().ACC_CAP_KJ) : 0;
+      if (ratio > 0.01) {
+        ctx.fillStyle = ratio > 0.25 ? '#5fc8e8' : '#5f8fd9';
+        ctx.fillRect(px + 8, py + (t - 12) * (1 - ratio * 0.72) + 2, t - 16, (t - 18) * ratio);
+      }
+      // ⚡ 标识
+      ctx.fillStyle = inWorld && ratio > 0.01 ? '#bfefff' : '#566478';
+      ctx.font = 'bold 9px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⚡', cx, cy + 2);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     } else if (type === 'trainDepot') {
       // 机务段：车库厂房 + 车库门
       ctx.fillStyle = '#3b4250';
@@ -690,11 +820,22 @@ FG.Renderer = (() => {
     if (game.showStatus && b.status) {
       const col = b.status === 'starving' ? C().COLORS.overlayRed
         : b.status === 'blocked' ? C().COLORS.overlayOrange
+        : b.status === 'unpowered' ? C().COLORS.overlayPower
         : b.status === 'working' ? C().COLORS.overlayGreen : null;
       if (col) {
         ctx.fillStyle = col;
         ctx.fillRect(px + 1, py + 1, t - 2, t - 2);
       }
+    }
+
+    // 缺电覆盖层（独立于 S 状态高亮：一缺电就提示）
+    if (b.status === 'unpowered') {
+      ctx.fillStyle = 'rgba(40,46,66,0.55)';
+      ctx.fillRect(px + 1, py + 1, t - 2, t - 2);
+      ctx.font = '11px sans-serif';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillText('⚡', cx, cy);
+      ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
     }
 
     // 生产进度条

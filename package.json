@@ -1,7 +1,7 @@
 {
   "name": "auto-factory-react",
   "private": true,
-  "version": "1.11.0",
+  "version": "1.12.0",
   "type": "module",
   "description": "自动化工厂流水线模拟游戏 — React 重构版",
   "scripts": {

@@ -7,6 +7,7 @@ import { Section, InfoGrid, ProgressBar, SlotRow, STATUS_NAMES, PRIO_OPTS } from
 import MaintenanceBlock from './MaintenanceBlock.jsx';
 import DeliveryBlock from './DeliveryBlock.jsx';
 import FleetBlock from './FleetBlock.jsx';
+import PowerBlock from './PowerBlock.jsx';
 
 export default function BuildingInfo({ game, b }) {
   // 该面板上的操作会就地改变 b；selection:change / recipe:change 已在 SidePanel 订阅，
@@ -16,6 +17,13 @@ export default function BuildingInfo({ game, b }) {
   const isBelt = b.def.beltTier !== undefined;
   const isInserter = b.def.inserterTier !== undefined;
   const isConsumer = b.def.recipeBuilding || b.type === 'lab';
+  const isPowerBuilding = !!(b.def.powerUse || b.def.powerPole || b.def.powerGen || b.def.accumulator);
+  const powerOn = game.power && game.power.enabled;
+  const poweredState = powerOn && b.def.powerUse
+    ? (game.power.isPowered(b)
+      ? (game.power.powerRatio(b) >= 0.999 ? '供电中'
+        : '降速 ' + Math.round(game.power.powerRatio(b) * 100) + '%')
+      : '缺电暂停') : null;
 
   return (
     <>
@@ -34,6 +42,8 @@ export default function BuildingInfo({ game, b }) {
           ...(b.type === 'miner' ? [['矿种', b.oreType ? FG.Items.byId(b.oreType).name : '无']] : []),
           ...(b.type === 'miner' && b.oreType ? [['剩余', FG.Utils.fmtNum(game.map.amountAt(b.x, b.y))]] : []),
           ...(isConsumer ? [['供料优先级', { high: '高', normal: '中', low: '低' }[b.priority] || '中']] : []),
+          ...(b.def.powerUse && powerOn ? [['电力', poweredState, poweredState === '缺电暂停' ? 'status-broken' : '']] : []),
+          ...(b.def.powerUse ? [['额定功率', b.def.powerUse + ' kW']] : []),
           ...(b.def.recipeBuilding ? [['产量', FG.Utils.fmtNum(b.totalCrafted)]] : []),
         ]} />
         <div style={{ color: 'var(--text-dim)', fontSize: 11, marginTop: 6, lineHeight: 1.5 }}>
@@ -43,6 +53,7 @@ export default function BuildingInfo({ game, b }) {
 
       {isInserter && <InserterRules game={game} b={b} />}
       {isConsumer && <PriorityPicker b={b} />}
+      {isPowerBuilding && <PowerBlock game={game} b={b} />}
       {game.maintenance && game.maintenance.enabled && game.maintenance.wearsOut(b) && (
         <MaintenanceBlock game={game} b={b} embedded />
       )}

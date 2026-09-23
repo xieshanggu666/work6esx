@@ -60,6 +60,7 @@ FG.Blueprint = (() => {
           filter: b.filter || null,
           demandMode: !!b.demandMode,
           priority: b.priority || 'normal',
+          powerPriority: b.powerPriority || 'normal',
           stationName: b.stationName || null,
         });
       }
@@ -78,6 +79,7 @@ FG.Blueprint = (() => {
         filter: e.filter || null,
         demandMode: !!e.demandMode,
         priority: e.priority || 'normal',
+        powerPriority: e.powerPriority || 'normal',
         stationName: e.stationName || null,
         require: e.require ? Object.assign({}, e.require) : undefined,
       })),
@@ -183,6 +185,7 @@ FG.Construction = class Construction {
         type: e.type, from: null, x: ox + e.dx, y: oy + e.dy, dir: e.dir || 0,
         recipe: e.recipe || null, filter: e.filter || null,
         demandMode: !!e.demandMode, priority: e.priority || 'normal',
+        powerPriority: e.powerPriority || 'normal',
         stationName: e.stationName || null,
         state: 'wait',           // wait | done | skip
         stock: {},               // 该条目已预留（移出物流）的建材
@@ -816,6 +819,10 @@ FG.Construction = class Construction {
       b.demandMode = e.demandMode;
     }
     if (b.def.recipeBuilding || b.type === 'lab') b.priority = e.priority;
+    // 电力：落成建筑还原保供优先级（含机械臂/矿机等全部用电建筑；旧计划字段缺省普通）
+    if (FG.Power.isConsumer(b)) b.powerPriority = e.powerPriority || 'normal';
+    // 电网拓扑随新建筑变化
+    if (g.power && (FG.Power.isNode(b) || FG.Power.isConsumer(b))) g.power.markDirty();
     g.absorbPile(b);     // 回收该格地面物料
     FG.Events.emit('building:placed', b);
     return b;
@@ -841,6 +848,7 @@ FG.Construction = class Construction {
     nb.phase = old.phase; nb.timer = old.timer;
     nb.filter = old.filter; nb.demandMode = old.demandMode;
     nb.priority = old.priority;
+    nb.powerPriority = old.powerPriority;   // 保供优先级随升级迁移
     nb.totalCrafted = old.totalCrafted;
     nb.craftedByItem = Object.assign({}, old.craftedByItem || {});   // 分项产量随升级迁移，试产基线不断档
     // 磨损状态随原地升级迁移：高级型号不翻新设备，磨损/故障与工单无缝衔接
@@ -935,6 +943,7 @@ FG.Construction = class Construction {
         entries: p.entries.map(e => ({
           type: e.type, from: e.from || null, x: e.x, y: e.y, dir: e.dir, recipe: e.recipe,
           filter: e.filter, demandMode: e.demandMode, priority: e.priority, state: e.state,
+          powerPriority: e.powerPriority || 'normal',
           stationName: e.stationName || null,
           stock: Object.assign({}, e.stock),
           // 试产基线：null=未建立；{total, items:{item:n}} 结构化快照（旧版数字基线读档时懒迁移）
@@ -955,6 +964,7 @@ FG.Construction = class Construction {
         type: e.type, from: e.from || null, x: e.x, y: e.y, dir: e.dir || 0,
         recipe: e.recipe || null, filter: e.filter || null,
         demandMode: !!e.demandMode, priority: e.priority || 'normal',
+        powerPriority: FG.Config.PRIORITIES[e.powerPriority] ? e.powerPriority : 'normal',
         stationName: e.stationName || null,
         state: e.state || 'wait',
         stock: e.stock || {},

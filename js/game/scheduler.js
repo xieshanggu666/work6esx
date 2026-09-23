@@ -74,20 +74,23 @@ FG.Scheduler = class Scheduler {
 
   addConsumer(b) {
     const wants = this.wantsOf(b);
-    if (!wants) return;
     const c = {
       key: FG.Utils.key(b.x, b.y), b,
       priority: FG.Config.PRIORITIES[b.priority] || FG.Config.PRIORITIES.normal,
       want: wants,
+      active: !!wants,   // 故障/缺电停机：登记在案以保留在途标签，但不开缺口、不参与拨付
     };
-    this.consumers.push(c);
     this.consumerByKey.set(c.key, c);
+    if (wants) this.consumers.push(c);
   }
 
-  /** 消费者目标缓冲 {item: 目标库存含在途}；无配方/无研究/故障停机返回 null */
+  /** 消费者目标缓冲 {item: 目标库存含在途}；无配方/无研究/故障停机/缺电停机返回 null */
   wantsOf(b) {
     const out = {};
     if (b.broken) return null;   // 故障停机检修：不参与按需物流，缺口不开、在途预留由标签 TTL/拆建设备释放
+    // 缺电联动：停电消费者不开缺口（来电后续作，本 tick 起恢复按需派料）；
+    // 在途货物标签保留，不强制剥离——复电后继续履约，停电期间货物停在带面上等待
+    if (this.game.power && this.game.power.enabled && !this.game.power.isPowered(b)) return null;
     if (b.def.recipeBuilding) {
       if (!b.recipe) return null;
       if (!this.game.research.isRecipeUnlocked(b.recipe)) return null;
@@ -109,10 +112,13 @@ FG.Scheduler = class Scheduler {
     if (!tag) return;
     const c = this.consumerByKey.get(tag.c);
     // 消费者已拆/换配方/故障停机/预留超时：剥离标签释放为自由货物（维修期间不继续向其供料）
-    if (!c || c.b.broken || !c.want[tag.item] || this.tick - (tag.t0 || 0) > FG.Config.RESV_TTL) {
+    if (!c || c.b.broken || (c.active && !c.want[tag.item])
+        || this.tick - (tag.t0 || 0) > FG.Config.RESV_TTL) {
       delete item.tag;
       return;
     }
+    // 缺电停机：标签保留（复电后续作），但本 tick 不计入在途冲抵——货物停在带面等待
+    if (!c.active) return;
     item._seen = true; // 已被本次 rebuild 统计，持货臂 swing 中途不重复/不漏算
     let m = this.transit.get(c.key);
     if (!m) { m = new Map(); this.transit.set(c.key, m); }
@@ -255,7 +261,7 @@ FG.Scheduler = class Scheduler {
         if (tr.terminal) continue;
         for (const ck of tr.items) {
           const c = this.consumerByKey.get(ck);
-          if (c && this.unmet(c, item) > 0) globalMax = Math.max(globalMax, c.priority);
+          if (c && c.active && this.unmet(c, item) > 0) globalMax = Math.max(globalMax, c.priority);
         }
       }
       this._arbCache.set(ak, globalMax);
@@ -264,7 +270,7 @@ FG.Scheduler = class Scheduler {
     const myTrace = this.traceInserter(ins);
     for (const ck of myTrace.items) {
       const c = this.consumerByKey.get(ck);
-      if (c && this.unmet(c, item) > 0) myMax = Math.max(myMax, c.priority);
+      if (c && c.active && this.unmet(c, item) > 0) myMax = Math.max(myMax, c.priority);
     }
     return { globalMax, myMax };
   }
@@ -287,7 +293,7 @@ FG.Scheduler = class Scheduler {
     const tier = [];
     for (const ck of trace.items) {
       const c = this.consumerByKey.get(ck);
-      if (c && c.priority === myMax && this.unmet(c, item) > 0) tier.push(c);
+      if (c && c.active && c.priority === myMax && this.unmet(c, item) > 0) tier.push(c);
     }
     if (!tier.length) return null;
     const start = this.armSeq.get(item) || 0;
@@ -379,7 +385,7 @@ FG.Scheduler = class Scheduler {
     const need = new Set();
     for (const ck of trace.items) {
       const c = this.consumerByKey.get(ck);
-      if (!c) continue;
+      if (!c || !c.active) continue;   // 缺电/故障停机：不开抓取需求（标签货仍沿带运抵等待）
       for (const item of Object.keys(c.want)) {
         if (ins.filter && ins.filter !== item) continue;
         // 有未满足需求（含本 tick 即将到货的件），或该臂的在途预留货物正从面前经过（要继续送）

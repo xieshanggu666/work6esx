@@ -15,12 +15,37 @@ export default function Topbar({ game, onOpenTech }) {
 
   const mgr = game.research;
   const current = mgr && mgr.current;
+  const powerOn = !!(game.power && game.power.enabled);
+  let powerSummary = null;
+  if (powerOn) {
+    let demand = 0, gen = 0, charge = 0, discharge = 0, unpowered = 0, consumers = 0;
+    for (const g of game.power.grids) {
+      demand += g.stats.demandKw; gen += g.stats.genKw;
+      charge += g.stats.chargeKw; discharge += g.stats.dischargeKw;
+      unpowered += g.stats.unpowered; consumers += g.stats.consumers;
+    }
+    powerSummary = { demand, gen, charge, discharge, unpowered, consumers };
+  }
+  const fmtK = (kw) => kw >= 1000 ? (kw / 1000).toFixed(1) + 'MW' : Math.round(kw) + 'kW';
 
   return (
     <header className="topbar">
       <div className="tb-left">
         <span className="logo">⚙ 自动工厂</span>
         <span className="tb-item">⏱ {FG.Utils.fmtTime(game.playTime || 0)}</span>
+        {powerSummary && (
+          <span
+            className={'tb-item power-chip' + (powerSummary.unpowered > 0 ? ' warn' : '')}
+            title={powerSummary.unpowered > 0
+              ? `有 ${powerSummary.unpowered} 栋建筑缺电暂停（查看电线杆详情可了解电网供需）`
+              : '电网：发电 / 负荷（蓄电池充+ / 放-）'}
+          >
+            ⚡ {fmtK(powerSummary.gen)}/{fmtK(powerSummary.demand)}
+            {powerSummary.charge > 5 ? ` +${fmtK(powerSummary.charge)}` : ''}
+            {powerSummary.discharge > 5 ? ` -${fmtK(powerSummary.discharge)}` : ''}
+            {powerSummary.unpowered > 0 ? ` ⚠${powerSummary.unpowered}` : ''}
+          </span>
+        )}
       </div>
 
       <div className="tb-center">

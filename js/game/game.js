@@ -12,6 +12,7 @@ FG.Game = class Game {
     this.contracts = new FG.Contracts(this); // 供货合同：接单/锁付/逾期/奖励
     this.maintenance = new FG.Maintenance(this); // 设备磨损：故障工单/备件预留/停机检修
     this.fleet = new FG.Fleet(this);       // 按需铁路运输：站点上下限 × 空闲列车自动派车
+    this.power = new FG.Power(this);       // 电力：电网连通/保供优先级/蓄电池调峰/缺电联动
     this.speed = 1;
     this.paused = false;
     this.tickCount = 0;
@@ -61,6 +62,7 @@ FG.Game = class Game {
     this.contracts = new FG.Contracts(this);
     this.maintenance = new FG.Maintenance(this);
     this.fleet = new FG.Fleet(this);
+    this.power = new FG.Power(this);
     this.tickCount = 0;
     this.playTime = 0;
     this.simAcc = 0;
@@ -122,6 +124,10 @@ FG.Game = class Game {
         })) : undefined,
         // 设备磨损与故障（预测性维护；旧档无字段 → 不磨损/不故障）
         wear: b.wear, wearLimit: b.wearLimit, broken: !!b.broken,
+        // 电力：保供优先级（旧档无字段 → 普通）；发电机燃料缓存；蓄电池储能
+        powerPriority: b.powerPriority,
+        fuel: (typeof b.fuel === 'number' && b.fuel > 0) ? b.fuel : undefined,
+        accCharge: (typeof b.accCharge === 'number' && b.accCharge > 0) ? b.accCharge : undefined,
       });
     }
     const ores = this.map.ores.map(row => row.map(c => c ? { type: c.type, amount: c.amount } : null));
@@ -152,6 +158,7 @@ FG.Game = class Game {
       fleet: this.fleet.serialize(),                 // 按需铁路运输（自动任务/在站预留/轮转游标；规则随车站存档）
       contracts: this.contracts.serialize(),         // 供货合同（锁付台账/邀约/期限/奖励）
       maintenance: this.maintenance.serialize(),     // 磨损寿命/维修工单（备件预留/检修计时/归档）
+      power: this.power.serialize(),                 // 电力开关（电网图读档惰性重建；燃料/储能随建筑）
       meta: { playTime: this.playTime, name: this.saveInfo.name, startDate: this.saveInfo.startDate },
     };
   }
@@ -221,6 +228,11 @@ FG.Game = class Game {
       b.wear = (typeof sb.wear === 'number') ? sb.wear : null;
       b.wearLimit = (typeof sb.wearLimit === 'number') ? sb.wearLimit : null;
       b.broken = !!sb.broken;
+      // 电力：保供优先级旧档缺省普通；发电机燃料/蓄电池储能旧档从零开始
+      b.powerPriority = FG.Config.PRIORITIES[sb.powerPriority] ? sb.powerPriority : undefined;
+      b.fuel = (typeof sb.fuel === 'number' && sb.fuel >= 0) ? sb.fuel : 0;
+      b.accCharge = (typeof sb.accCharge === 'number' && sb.accCharge >= 0)
+        ? Math.min(sb.accCharge, FG.Config.ACC_CAP_KJ) : 0;
       // 旧存档箱子槽位补齐
       if (b.def.storage) {
         while (b.chest.length < FG.Config.CHEST_SLOTS) b.chest.push({ type: null, count: 0, cap: FG.Config.CHEST_SLOT_CAP });
@@ -255,6 +267,8 @@ FG.Game = class Game {
     this.contracts.deserialize(data.contracts || null);
     // 设备磨损与维修工单（设备 wear/broken 已随建筑读入；旧档无字段按科技状态回退）
     this.maintenance.deserialize(data.maintenance || null);
+    // 电力：开关按存档/科技恢复，电网图不序列化，首个 tick 惰性重建（兼容无 power 字段旧档）
+    this.power.deserialize(data.power || null);
     // 读回的一键流水线蓝图恢复来源标记（bpMode 不持久化，需重新进入放置预览）
     this.pipelineId = (this.blueprint && this.blueprint.fromPreset) || null;
     this.logMsg('存档已载入', 'info');
@@ -310,6 +324,7 @@ FG.Game = class Game {
   }
 
   tickOnce() {
+    this.power.tick();         // 电力：重建电网 → 保供优先级分配 → 蓄电池充放（先定电、后生产）
     this.sim.tick();
     this.construction.tick();   // 施工计划：备料 → 落成
     this.maintenance.tick();    // 维修工单：按优先级预留备件 → 停机检修 → 恢复生产
@@ -384,6 +399,8 @@ FG.Game = class Game {
     this.sim.register(b);
     // 轨网变更（轨道/车站接入）→ 下一 tick 重建路网图并重寻路
     if (b.type === 'rail' || b.def.railStation) this.railway.markDirty();
+    // 电网节点/用电建筑增删 → 下一 tick 重建电网
+    if (FG.Power.isNode(b) || this.power.isConsumer(b)) this.power.markDirty();
     // 预测性维护已开启：新设备从全新状态开始积累磨损
     if (this.maintenance && this.maintenance.enabled) this.maintenance.initWear(b);
     // 若该格有拆除时遗留的地面物料，优先回收进新建筑（在途物品不丢失）
@@ -410,6 +427,12 @@ FG.Game = class Game {
         for (let k = b.items.length - 2; k >= 0; k--) b.items[k].pos = Math.min(b.items[k].pos, b.items[k + 1].pos - SP);
       } else if (b.def.storage) {
         left = this.tryChestAdd(b, s.type, left);
+      } else if (b.def.powerGen) {
+        // 燃煤发电机：同格遗留的煤炭直接转为燃料缓存（满则留地面）
+        if (s.type === 'coal') {
+          const took = this.power.refuel(b, 'coal', left);
+          left -= took;
+        }
       } else if (b.slots) {
         FG.Map.syncRecipeSlots(b);
         const ins = b.slots.inputs[s.type];
@@ -464,6 +487,11 @@ FG.Game = class Game {
       for (const k of Object.keys(b.slots.inputs)) if (b.slots.inputs[k].count > 0) this.map.pileAdd(b.x, b.y, k, b.slots.inputs[k].count);
       for (const k of Object.keys(b.slots.outputs)) if (b.slots.outputs[k].count > 0) this.map.pileAdd(b.x, b.y, k, b.slots.outputs[k].count);
     }
+    // 燃煤发电机拆除：燃料缓存按整件煤折算落到地面堆（不足 1 件的零头随拆除消耗）
+    if (b.def.powerGen && b.fuel > 0) {
+      const coal = Math.floor(b.fuel / FG.Config.POWER_COAL_KJ + 1e-9);
+      if (coal > 0) this.map.pileAdd(b.x, b.y, 'coal', coal);
+    }
     this.sim.unregister(b);
     this.map.unregister(b);
     if (b.type === 'rail' || b.def.railStation) {
@@ -472,6 +500,8 @@ FG.Game = class Game {
       if (this.railway.reserve.has(k)) this.railway.reserve.delete(k);
       this.railway.markDirty();
     }
+    // 电网拓扑变化（节点/用电建筑拆除）→ 下一 tick 重建电网
+    if (FG.Power.isNode(b) || (this.power && this.power.isConsumer(b))) this.power.markDirty();
     if (this.selection === b) this.selection = null;
     FG.Events.emit('building:removed', b);
     return true;

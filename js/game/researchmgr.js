@@ -83,6 +83,10 @@ FG.ResearchMgr = class ResearchMgr {
       this.game.maintenance.enable();
       this.game.logMsg('🔧 设备将随运转积累磨损，故障后自动生成维修工单（按优先级预留备件）', 'unlock');
     }
+    // 电力工程：启用电网/保供优先级/缺电联动（既有电网拓扑下一 tick 重建）
+    if (t.id === 'electricPower' && this.game.power) {
+      this.game.power.enable();
+    }
     this.game.logMsg('✅ 研究完成：' + t.name, 'unlock');
     FG.Events.emit('research:complete', t);
   }

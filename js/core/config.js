@@ -5,7 +5,7 @@
 window.FG = window.FG || {};
 
 FG.Config = {
-  VERSION: '1.11.0',
+  VERSION: '1.12.0',
 
   // 仿真节拍：每秒 20 tick
   TPS: 20,
@@ -74,6 +74,20 @@ FG.Config = {
   REPAIR_SPARES_PER_TIER: 1,     // 设备每高一个等级额外备件数（石炉1 → 钢炉2）
   REPAIR_TIER_START: { high: 0, normal: 0, low: 0 }, // 同级轮转游标（每 tick 重置）
 
+  // 电力系统（kW 为功率单位，kJ 为能量单位；每 tick = 1/20 秒，kJ = kW × 秒）
+  POWER_COAL_KJ: 1500,           // 每件煤炭的燃烧能量（满负荷 1500kW 时恰好 1 秒 1 件）
+  POWER_GEN_KW: 1500,            // 燃煤发电机最大输出
+  POWER_GEN_FUEL_CAP: 6000,      // 发电机燃料缓存（kJ，约 4 件煤）
+  POWER_GEN_SELFFEED: 3,         // 发电机每 tick 可自行从相邻箱/地面堆补充的煤（件，免电供料）
+  ACC_CAP_KJ: 3000,              // 蓄电池容量（kJ，1500kW 可供 2 秒）
+  ACC_CHARGE_KW: 300,            // 蓄电池最大充电功率
+  ACC_DISCHARGE_KW: 300,         // 蓄电池最大放电功率
+  POLE_REACH: 2,                 // 电线杆对用电/发电/储能建筑的供电半径（Chebyshev 距离）
+  POLE_WIRE_REACH: 5,            // 电线杆之间架空线互连的最大距离（Chebyshev）
+  POWER_STANDBY_RATIO: 0.2,      // 待机（缺料/堵塞等）建筑维持控制电路所需的待机功率比
+  POWER_TIERS: ['high', 'normal', 'low'], // 保供优先级层高优先级到低
+  POWER_TIER_START: { high: 0, normal: 0, low: 0 }, // 同级供电轮转游标（每 tick 重置）
+
   // 一键流水线
   PIPELINE_SEARCH_RADIUS: 40,    // 智能选位螺旋搜索半径（格）
 
@@ -115,5 +129,6 @@ FG.Config = {
     overlayRed:   'rgba(224,92,92,0.55)',
     overlayOrange:'rgba(232,163,61,0.5)',
     overlayGreen: 'rgba(88,194,111,0.25)',
+    overlayPower: 'rgba(120,128,224,0.45)',
   },
 };

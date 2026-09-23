@@ -116,6 +116,10 @@ FG.Sim = class Sim {
           if (next.def.storage) {
             if (this.chestAdd(next, head.type, 1)) { delete head.tag; dst.items.pop(); }
             else head.pos = 0.99;
+          } else if (next.def.powerGen) {
+            // 燃煤发电机：传送带直接卸入煤炭为燃料（发电机自行燃烧，不需要自身有电）
+            if (this.game.power.refuel(next, head.type, 1) === 1) { delete head.tag; dst.items.pop(); }
+            else head.pos = 0.99;
           } else {
             head.pos = 0.99; // 生产/科研建筑需经机械臂放入
           }
@@ -163,6 +167,11 @@ FG.Sim = class Sim {
       return FG.Map.beltEntrySide(next, b.x, b.y) >= 0 && this.hasEntryRoom(next);
     }
     if (next.def.storage) return this.chestCanAdd(next, head.type, 1);
+    if (next.def.powerGen) {
+      // 带端煤炭可入发电机：燃料缓存有空间（皮带不耗电，缺电停摆的工厂旁仍可送煤）
+      return head.type === 'coal'
+        && (next.fuel || 0) + FG.Config.POWER_COAL_KJ <= FG.Config.POWER_GEN_FUEL_CAP + 1e-6;
+    }
     return false;
   }
 
@@ -179,8 +188,11 @@ FG.Sim = class Sim {
     // 两阶段：先统一投放（消费者库存本 tick 即时更新），再统一取料。
     // 取料按「目标可达消费者最高优先级」降序，保证高优先产线在缺口重开的同一 tick
     // 先于低优先产线争得共享料源（与在途预留联动）。
+    // 缺电联动：无电的机械臂整个 tick 冻结——手持物保留、节拍计时不动，来电后续摆。
+    const power = this.game.power;
     const dropping = [], picking = [];
     for (const b of this.inserters) {
+      if (power.enabled && !power.isPowered(b)) { b.status = 'unpowered'; continue; }
       b.timer--;
       if (b.held !== null) { if (b.timer <= 0) dropping.push(b); }
       else if (b.timer <= 0) picking.push(b);
@@ -322,6 +334,11 @@ FG.Sim = class Sim {
       if (!this.scheduler.canDrop(b, t, type, tag)) return false;
       if (this.chestAdd(t, type, 1)) return true; // 入终端仓库：预留语义随货释放
     }
+    if (t && t.def.powerGen) {
+      // 机械臂加煤：非预留自由煤直接注入发电机燃料缓存
+      if (!this.scheduler.canDrop(b, t, type, tag)) return false;
+      return this.game.power.refuel(t, type, 1) === 1;
+    }
     // 放到地面堆（无建筑时只有该格已有堆才继续堆放，避免误洒）
     if (!t && m.pileAt(tx, ty)) {
       if (!this.scheduler.canDrop(b, null, type, tag)) return false;
@@ -356,12 +373,16 @@ FG.Sim = class Sim {
 
   // ================= 流体生产（水泵/抽油机） =================
   updateFluidProducers() {
+    const power = this.game.power;
     for (const b of this.fluidProducers) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机检修：不抽液、不推流
+      if (power.enabled && !power.isPowered(b)) { b.status = 'unpowered'; continue; } // 缺电停机
       const item = b.type === 'pump' ? 'water' : 'crudeOil';
       const cap = FG.Config.FLUID_TANK_CAP;
       const tank = b.fluidTanks[item] || 0;
-      if (tank < cap) b.fluidTanks[item] = Math.min(cap, tank + b.def.fluidRate / FG.Config.TPS);
+      // 部分供电按比例降速抽水（每 tick 水量）
+      const rate = b.def.fluidRate / FG.Config.TPS * power.powerRatio(b);
+      if (tank < cap && rate > 0) b.fluidTanks[item] = Math.min(cap, tank + rate);
       const sent = this.pushFluid(b, item);
       b.status = (sent === 0 && (b.fluidTanks[item] || 0) >= cap - 0.1) ? 'blocked' : 'working';
       // 水泵/抽油机持续运转：每仿真秒（20 tick）记一个磨损周期；堵塞/故障不积累
@@ -431,11 +452,14 @@ FG.Sim = class Sim {
 
   // ================= 生产建筑 =================
   updateCrafters() {
+    const power = this.game.power;
     for (const b of this.crafters) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机：等待维修工单检修
+      if (power.enabled && !power.isPowered(b)) { b.status = 'unpowered'; continue; } // 缺电暂停（进度保留）
       const recipe = b.recipe ? FG.Recipes.byId(b.recipe) : null;
       if (!recipe) { b.status = 'idle'; b.progress = 0; continue; }
       if (!this.game.research.isRecipeUnlocked(recipe.id)) { b.status = 'idle'; b.progress = 0; continue; }
+      b._pwRatio = power.enabled ? power.powerRatio(b) : 1;
       this.craftTick(b, recipe);
     }
   }
@@ -493,9 +517,9 @@ FG.Sim = class Sim {
       return;
     }
 
-    // 4. 生产推进
+    // 4. 生产推进（部分供电时按供电比例降速，进度保留不停零）
     b.status = 'working';
-    b.progress += def.craftSpeed || 1;
+    b.progress += (def.craftSpeed || 1) * (b._pwRatio === undefined ? 1 : b._pwRatio);
     if (b.progress >= recipe.time) {
       b.progress = 0;
       for (const ing of recipe.ingredients) {
@@ -535,8 +559,10 @@ FG.Sim = class Sim {
   // ================= 矿机 =================
   updateMiners() {
     const m = this.game.map;
+    const power = this.game.power;
     for (const b of this.miners) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机：等待维修工单检修
+      if (power.enabled && !power.isPowered(b)) { b.status = 'unpowered'; continue; } // 缺电暂停（进度保留）
       const ore = m.ores[b.y][b.x];
       if (!ore || ore.amount <= 0) { b.status = 'empty'; b.progress = 0; b.oreType = null; continue; }
       b.oreType = ore.type;
@@ -546,7 +572,7 @@ FG.Sim = class Sim {
         b.status = 'blocked'; b.progress = 0; continue;
       }
       b.status = 'working';
-      b.progress++;
+      b.progress += power.enabled ? power.powerRatio(b) : 1;   // 部分供电降速采矿
       if (b.progress >= 20) {
         b.progress = 0;
         out.count++;
@@ -563,11 +589,14 @@ FG.Sim = class Sim {
   // ================= 实验室 =================
   updateLabs() {
     const mgr = this.game.research;
+    const power = this.game.power;
     for (const b of this.labs) {
       if (b.broken) { b.status = 'broken'; continue; }   // 故障停机：等待维修工单检修
+      if (power.enabled && !power.isPowered(b)) { b.status = 'unpowered'; continue; } // 缺电暂停科研（续电后续作）
       const tech = mgr.current;
       if (!tech) { b.status = 'idle'; b.consumeCounter = 0; continue; }
-      b.consumeCounter++;
+      // 部分供电时科研节拍按供电比例推进（每 10 个满速 tick 消耗一次科学包）
+      b.consumeCounter += power.enabled ? power.powerRatio(b) : 1;
       if (b.consumeCounter < 10) { b.status = 'working'; continue; }
       b.consumeCounter = 0;
       let ok = true;

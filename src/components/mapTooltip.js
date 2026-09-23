@@ -9,8 +9,8 @@ const TRAIN_STATUS = {
   blocked: '堵死（需改线）', noroute: '断路', paused: '已停运', idle: '待命',
 };
 const BUILDING_STATUS = {
-  working: '生产中/流动', starving: '缺料', blocked: '堵塞',
-  idle: '闲置', empty: '枯竭', broken: '故障停机',
+  working: '生产中/流动', starving: '缺料/缺煤', blocked: '堵塞',
+  idle: '闲置', empty: '枯竭', broken: '故障停机', unpowered: '缺电暂停',
 };
 
 export function buildTooltip(game, tile) {
@@ -41,7 +41,40 @@ export function buildTooltip(game, tile) {
 
   if (b) {
     html += `<div class="tt-title">${b.def.name}</div>`;
-    html += `<div class="tt-row">状态：<b${b.status === 'broken' ? ' style="color:#e05c5c"' : ''}>${BUILDING_STATUS[b.status] || b.status}</b></div>`;
+    html += `<div class="tt-row">状态：<b${b.status === 'broken' || b.status === 'unpowered' ? ' style="color:#e05c5c"' : ''}>${BUILDING_STATUS[b.status] || b.status}</b></div>`;
+
+    // 电力信息
+    if (game.power && game.power.enabled) {
+      if (b.def.powerUse) {
+        const g0 = game.power.gridOfConsumer(b);
+        if (!g0) {
+          html += `<div class="tt-row" style="color:#e07a7a">⚡ 未接入电网（缺电暂停）</div>`;
+        } else if (!game.power.isPowered(b)) {
+          html += `<div class="tt-row" style="color:#e07a7a">⚡ 电网缺电：保供优先级 <b>${({ high: '高', normal: '中', low: '低' })[game.power.constructor.priorityOf(b)] || '中'}</b> 层暂停中</div>`;
+        } else {
+          const r = game.power.powerRatio(b);
+          html += `<div class="tt-row">⚡ ${b.def.powerUse}kW${r < 0.999 ? ` · 降速 ${Math.round(r * 100)}%` : ''} · 保供 <b>${({ high: '高', normal: '中', low: '低' })[game.power.constructor.priorityOf(b)] || '中'}</b></div>`;
+        }
+      } else if (b.def.powerGen) {
+        const g0 = game.power.gridAt(b);
+        html += `<div class="tt-row">燃料 <b>${((b.fuel || 0) / FG.Config.POWER_COAL_KJ).toFixed(1)}</b> 件煤`
+          + ` · 1500kW${g0 ? ` · 电网 ${g0.id}` : ' · 未联网'}</div>`;
+      } else if (b.def.accumulator) {
+        const g0 = game.power.gridAt(b);
+        const pct = Math.round((b.accCharge || 0) / FG.Config.ACC_CAP_KJ * 100);
+        html += `<div class="tt-row">⚡ 储能 <b>${pct}%</b>（${Math.round(b.accCharge || 0)}/${FG.Config.ACC_CAP_KJ}kJ）`
+          + `${g0 ? ` · 电网 ${g0.id}` : ' · 未联网'}</div>`;
+      } else if (b.def.powerPole) {
+        const g0 = game.power.gridAt(b);
+        if (g0) {
+          const st = g0.stats;
+          html += `<div class="tt-row">电网 <b>${g0.id}</b> · 发电 <b>${Math.round(st.genKw)}kW</b>/负荷 ${Math.round(st.demandKw)}kW`
+            + (st.unpowered ? ` · <b style="color:#e07a7a">${st.unpowered} 栋缺电</b>` : '') + `</div>`;
+        } else {
+          html += `<div class="tt-row" style="color:#e8b33d">孤立电线杆：${FG.Config.POLE_WIRE_REACH} 格内接线、${FG.Config.POLE_REACH} 格供电</div>`;
+        }
+      }
+    }
 
     if (game.maintenance && game.maintenance.enabled && game.maintenance.wearsOut(b)) {
       if (b.broken) {

@@ -61,7 +61,7 @@ export function ItemName({ id }) {
 
 export const STATUS_NAMES = {
   working: '生产中', starving: '缺料', blocked: '堵塞',
-  idle: '闲置', empty: '枯竭', broken: '故障停机',
+  idle: '闲置', empty: '枯竭', broken: '故障停机', unpowered: '缺电暂停',
 };
 
 export const PRIO_OPTS = [

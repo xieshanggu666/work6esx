@@ -7,10 +7,11 @@ import { useEventVersion } from '../hooks';
 import { BuildingIcon } from './Icon.jsx';
 
 const HINTS = {
-  extraction: '左键放置；右键/Esc 取消。矿机需放在矿脉上，水泵放水域旁。',
-  production: '放置后用右侧面板选择配方；用机械臂连接传送带与建筑。',
+  extraction: '左键放置；右键/Esc 取消。矿机需放在矿脉上，水泵放水域旁。研究「电力工程」后这些建筑需要接入电网。',
+  production: '放置后用右侧面板选择配方；用机械臂连接传送带与建筑。研究「电力工程」后需要接入电网。',
   logistics: '传送带按住拖拽可连成直线；机械臂 R 旋转；管道连接产液与用液建筑。轨道拖拽铺设，车站旁建机务段发车；交付站可承接供货合同。',
-  science: '实验室需要科学包，由组装机生产；研究在 🔬 科技树中选择。',
+  power: '燃煤发电机烧煤发电（相邻煤箱自动补煤）；电线杆 5 格内互连、2 格内供电；蓄电池富余时充电、缺电时放电。研究「电力工程」解锁。',
+  science: '实验室需要科学包，由组装机生产；研究在 🔬 科技树中选择。研究「电力工程」后实验室需要接入电网。',
 };
 
 export default function Toolbar({ game, onOpenTech }) {

@@ -27,6 +27,7 @@ import '../js/game/railway.js';
 import '../js/game/fleet.js';
 import '../js/game/contracts.js';
 import '../js/game/maintenance.js';
+import '../js/game/power.js';
 import '../js/game/sim.js';
 import '../js/game/researchmgr.js';
 import '../js/game/stats.js';

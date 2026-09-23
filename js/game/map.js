@@ -107,6 +107,10 @@ FG.Map = class {
       wear: null,
       wearLimit: null,
       broken: false,
+      // 电力：用电建筑保供优先级（high|normal|low）；发电机燃料缓存；蓄电池储能
+      powerPriority: undefined,
+      fuel: 0,              // 燃煤发电机燃料缓存（kJ）
+      accCharge: 0,         // 蓄电池当前储能（kJ）
     };
     if (def.storage) {
       for (let i = 0; i < FG.Config.CHEST_SLOTS; i++) b.chest.push({ type: null, count: 0, cap: FG.Config.CHEST_SLOT_CAP });
